@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Niu Niu Pro v10.0 (Joker UI & Dian Naming)</title>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+<style>
+body {
+    font-family: sans-serif;
+    background-color: #0B4228;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+}
+
+.camera-container {
+    width: 100%;
+    max-width: 400px;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+video, canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+#canvasOverlay { display: none; }
+
+button {
+    padding: 15px 30px;
+    font-size: 18px;
+    font-weight: bold;
+    background-color: #FACC15;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin: 10px;
+    color: #111;
+}
+
+.status {
+    font-size: 16px;
+    color: #FACC15;
+    margin-bottom: 15px;
+    font-weight: bold;
+}
+
+.result-box {
+    background: rgba(0,0,0,0.4);
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #FACC15;
+    width: 100%;
+    max-width: 360px;
+    display: none;
+    text-align: center;
+}
+
+.card-badge {
+    background: white;
+    color: #1f2937;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 18px;
+    margin: 5px;
+    display: inline-block;
+}
+
+.suit-red { color: #ef4444; }
+.joker-badge { color: #a855f7; } /* Cool purple color for the Joker */
+.rate-text { color: #FACC15; font-size: 24px; font-weight: bold; margin-top: 10px; }
+</style>
+</head>
+
+<body>
+
+<h2>Niu Niu Pro Cloud</h2>
+<div class="status" id="statusText">Initialising Camera...</div>
+
+<div class="camera-container">
+    <video id="cameraStream" autoplay playsinline></video>
+    <canvas id="canvasOverlay"></canvas>
+</div>
+
+<div>
+    <button id="captureBtn">Capture & Scan</button>
+    <button id="retakeBtn" style="display:none;background:#eee;">Retake</button>
+</div>
+
+<div class="result-box" id="resultBox">
+    <div id="detectedCardsList"></div>
+    <hr style="border:0.5px solid rgba(255,255,255,0.2);margin:15px 0;">
+    <div id="resultText"></div>
+</div>
+
+<canvas id="hiddenCanvas" style="display:none;"></canvas>
+
+<script>
+const API_KEY = "PmzZZrcReh6aNokBOkJD";
+const MODEL_URL = "https://detect.roboflow.com/playing-cards-ow27d/4";
+
+const SUIT_SYMBOLS = { 'c':'♣','d':'♦','h':'♥','s':'♠' };
+
+const video = document.getElementById('cameraStream');
+const canvasOverlay = document.getElementById('canvasOverlay');
+const hiddenCanvas = document.getElementById('hiddenCanvas');
+
+const statusText = document.getElementById('statusText');
+const resultBox = document.getElementById('resultBox');
+const resultText = document.getElementById('resultText');
+const detectedCardsList = document.getElementById('detectedCardsList');
+
+const captureBtn = document.getElementById('captureBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+
+const CONFIDENCE_THRESHOLD = 0.45;
+
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment" }
+        });
+        video.srcObject = stream;
+        statusText.innerText = "Cloud AI Connected. Ready!";
+    } catch (err) {
+        statusText.innerText = "❌ Camera Error.";
+    }
+}
+
+captureBtn.addEventListener('click', async () => {
+    statusText.innerText = "Sending to Cloud AI...";
+
+    canvasOverlay.width = video.videoWidth;
+    canvasOverlay.height = video.videoHeight;
+    canvasOverlay.getContext('2d').drawImage(video, 0, 0);
+
+    video.style.display = 'none';
+    canvasOverlay.style.display = 'block';
+    captureBtn.style.display = 'none';
+
+    hiddenCanvas.width = video.videoWidth;
+    hiddenCanvas.height = video.videoHeight;
+    hiddenCanvas.getContext('2d').drawImage(video, 0, 0);
+
+    const base64Image = hiddenCanvas
+        .toDataURL("image/jpeg", 0.8)
+        .split(',')[1];
+
+    axios({
+        method: "POST",
+        url: MODEL_URL,
+        params: { api_key: API_KEY },
+        data: base64Image,
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    })
+    .then(response => {
+        processPredictions(response.data.predictions);
+    })
+    .catch(error => {
+        statusText.innerText = "❌ Cloud Error: " + error.message;
+        retakeBtn.style.display = 'inline-block';
+    });
+});
+
+function processPredictions(predictions) {
+    predictions = predictions
+        .filter(p => p.confidence > CONFIDENCE_THRESHOLD)
+        .sort((a,b) => b.confidence - a.confidence);
+
+    const selected = [];
+    const usedClasses = new Set(); 
+
+    for (let p of predictions) {
+        if (selected.length >= 5) break;
+
+        if (usedClasses.has(p.class)) continue;
+
+        let keep = true;
+        for (let s of selected) {
+            const iou = calculateIoU(p, s);
+            if (iou > 0.45 || (p.class === s.class && iou > 0.05)) {
+                keep = false;
+                break;
+            }
+        }
+
+        if (keep) {
+            selected.push(p);
+            usedClasses.add(p.class);
+        }
+    }
+
+    displayResults(selected.map(p => p.class));
+}
+
+function calculateIoU(a, b) {
+    const boxA = { x1: a.x - a.width/2, y1: a.y - a.height/2, x2: a.x + a.width/2, y2: a.y + a.height/2 };
+    const boxB = { x1: b.x - b.width/2, y1: b.y - b.height/2, x2: b.x + b.width/2, y2: b.y + b.height/2 };
+    const xA = Math.max(boxA.x1, boxB.x1);
+    const yA = Math.max(boxA.y1, boxB.y1);
+    const xB = Math.min(boxA.x2, boxB.x2);
+    const yB = Math.min(boxA.y2, boxB.y2);
+    const interArea = Math.max(0, xB-xA) * Math.max(0, yB-yA);
+    const boxAArea = (boxA.x2-boxA.x1)*(boxA.y2-boxA.y1);
+    const boxBArea = (boxB.x2-boxB.x1)*(boxB.y2-boxB.y1);
+    return interArea / (boxAArea + boxBArea - interArea);
+}
+
+function displayResults(cards) {
+    // 1. Render the successfully scanned cards
+    let badges = cards.map(c => {
+        const rank = c.replace(/[hdcs]/gi,'').toUpperCase();
+        const suit = c.slice(-1).toLowerCase();
+        const isRed = suit === 'h' || suit === 'd';
+        return `<span class="card-badge ${isRed ? 'suit-red':''}">${rank}${SUIT_SYMBOLS[suit] || ''}</span>`;
+    });
+
+    // 2. Add visual Joker badges to fill up the 5-card slot
+    const missingCount = Math.max(0, 5 - cards.length);
+    for (let i = 0; i < missingCount; i++) {
+        badges.push(`<span class="card-badge joker-badge">🃏 JOKER</span>`);
+    }
+
+    detectedCardsList.innerHTML = badges.join('');
+
+    resultBox.style.display = 'block';
+    retakeBtn.style.display = 'inline-block';
+    statusText.innerText = "Scan Complete!";
+
+    const result = evaluateHand(cards);
+
+    if (cards.length > 0) {
+        resultText.innerHTML = `
+            <div style="font-size: 18px;">Type: <b>${result.type}</b></div>
+            <div class="rate-text">Rate: ${result.rate}x</div>
+            ${result.flipped ? `<div style="font-size:12px; margin-top:5px; color:#10b981;">(Used 3/6 Flip Rule for best score)</div>` : ''}
+        `;
+    } else {
+        resultText.innerHTML = "No cards detected. Try spreading them out.";
+    }
+}
+
+// ===============================
+// MAIN ENTRY FUNCTION (Jokers & Flips)
+// ===============================
+function evaluateHand(cardClasses) {
+    if (cardClasses.length === 0) return { type: "Invalid Hand", rate: 0, niuValue: 0, flipped: false };
+
+    const jokersNeeded = Math.max(0, 5 - cardClasses.length);
+    const parsed = cardClasses.map(parseCard);
+
+    let bestResult = { rate: 0, niuValue: 0, type: "No Niu", flipped: false };
+    
+    const jokerTypes = [
+        {v:1, r:'A'}, {v:2, r:'2'}, {v:3, r:'3'}, {v:4, r:'4'}, {v:5, r:'5'},
+        {v:6, r:'6'}, {v:7, r:'7'}, {v:8, r:'8'}, {v:9, r:'9'}, 
+        {v:10, r:'10'}, {v:10, r:'J'}, {v:10, r:'Q'}, {v:10, r:'K'}
+    ];
+
+    function tryJokers(index, currentJokers) {
+        if (index === jokersNeeded) {
+            const fullHand = [...parsed, ...currentJokers];
+            
+            const allFlips = getFlips(fullHand);
+
+            for (let flippedHand of allFlips) {
+                const result = evaluateFiveCards(flippedHand);
+                
+                if (result.rate > bestResult.rate || (result.rate === bestResult.rate && result.niuValue > bestResult.niuValue)) {
+                    bestResult = result;
+                    bestResult.flipped = flippedHand.some(c => c.isFlipped); 
+                }
+            }
+            return;
+        }
+        for (let jt of jokerTypes) {
+            tryJokers(index + 1, [...currentJokers, { value: jt.v, suit: 's', joker: true, rawRank: jt.r, originalRank: 'Joker' }]);
+        }
+    }
+
+    tryJokers(0, []);
+    return bestResult;
+}
+
+function getFlips(hand) {
+    let hands = [[]];
+    for (let card of hand) {
+        let newHands = [];
+        for (let h of hands) {
+            newHands.push([...h, card]);
+            
+            if (card.rawRank === '3') {
+                newHands.push([...h, { ...card, value: 6, rawRank: '6', isFlipped: true }]);
+            } else if (card.rawRank === '6') {
+                newHands.push([...h, { ...card, value: 3, rawRank: '3', isFlipped: true }]);
+            }
+        }
+        hands = newHands;
+    }
+    return hands;
+}
+
+function parseCard(str) {
+    const rank = str.slice(0, -1).toUpperCase();
+    const suit = str.slice(-1).toLowerCase();
+    let value;
+    if (rank === "A") value = 1;
+    else if (["J","Q","K"].includes(rank)) value = 10;
+    else value = parseInt(rank) || 10;
+    
+    return { value, suit, rawRank: rank, originalRank: rank, joker: false };
+}
+
+// ===============================
+// STRICT REMAINING CARD EVALUATION
+// ===============================
+function evaluateFiveCards(cards) {
+    const straightResult = checkStraight(cards);
+    if (straightResult) return straightResult;
+
+    let bestSplit = { type: "No Niu", rate: 0, niuValue: 0 };
+
+    for (let i = 0; i < 3; i++) {
+        for (let j = i + 1; j < 4; j++) {
+            for (let k = j + 1; k < 5; k++) {
+
+                const sum3 = cards[i].value + cards[j].value + cards[k].value;
+
+                if (sum3 % 10 === 0) {
+                    
+                    const remaining = [];
+                    for (let x = 0; x < 5; x++) {
+                        if (x !== i && x !== j && x !== k) remaining.push(cards[x]);
+                    }
+
+                    const r1 = remaining[0];
+                    const r2 = remaining[1];
+                    const niuValue = (r1.value + r2.value) % 10;
+                    
+                    let currentSplit;
+
+                    const isDonggu = 
+                        (r1.rawRank === "A" && r1.suit === "s" && ["J","Q","K"].includes(r2.rawRank)) ||
+                        (r2.rawRank === "A" && r2.suit === "s" && ["J","Q","K"].includes(r1.rawRank));
+
+                    const isValidPair = r1.originalRank === r2.originalRank || r1.joker || r2.joker;
+
+                    if (isDonggu) {
+                        currentSplit = { type: "Dong Gu", rate: 5, niuValue: niuValue };
+                    } 
+                    else if (r1.value === 1 && r2.value === 1 && isValidPair) {
+                        currentSplit = { type: "Baobao A", rate: 4, niuValue: niuValue };
+                    } 
+                    else if (r1.value === r2.value && r1.value >= 2 && r1.value <= 9 && isValidPair) {
+                        currentSplit = { type: "Baobao", rate: 3, niuValue: niuValue };
+                    } 
+                    else if (niuValue === 0) {
+                        currentSplit = { type: "Full Hand (Niu Niu)", rate: 2, niuValue: 10 };
+                    } 
+                    else {
+                        // The requested 'Dian' logic integration
+                        currentSplit = { type: niuValue + " Dian", rate: 1, niuValue: niuValue };
+                    }
+
+                    if (
+                        currentSplit.rate > bestSplit.rate || 
+                        (currentSplit.rate === bestSplit.rate && currentSplit.niuValue > bestSplit.niuValue)
+                    ) {
+                        bestSplit = currentSplit;
+                    }
+                }
+            }
+        }
+    }
+
+    return bestSplit;
+}
+
+function checkStraight(cards) {
+    const values = cards.map(c => c.value);
+    if (isStraight(values)) return { type: "Straight", rate: 5, niuValue: 0 };
+    const converted = values.map(v => v === 1 ? 14 : v);
+    if (isStraight(converted)) return { type: "Straight", rate: 5, niuValue: 0 };
+    return null;
+}
+
+function isStraight(vals) {
+    const sorted = [...vals].sort((a,b)=>a-b);
+    for (let i=1;i<sorted.length;i++) {
+        if (sorted[i] !== sorted[i-1] + 1) return false;
+    }
+    return true;
+}
+
+retakeBtn.addEventListener('click', () => {
+    video.style.display = 'block';
+    canvasOverlay.style.display = 'none';
+    captureBtn.style.display = 'inline-block';
+    retakeBtn.style.display = 'none';
+    resultBox.style.display = 'none';
+    statusText.innerText = "Ready!";
+});
+
+window.onload = startCamera;
+</script>
+
+</body>
+</html>
