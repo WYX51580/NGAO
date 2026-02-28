@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Niu Niu Pro v10.0 (Joker UI & Dian Naming)</title>
+<title>NGAO</title>
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 
 <style>
@@ -83,7 +83,7 @@ button {
 
 <body>
 
-<h2>Niu Niu Pro Cloud</h2>
+<h2>NGAO</h2>
 <div class="status" id="statusText">Initialising Camera...</div>
 
 <div class="camera-container">
@@ -257,7 +257,7 @@ function evaluateHand(cardClasses) {
     const jokersNeeded = Math.max(0, 5 - cardClasses.length);
     const parsed = cardClasses.map(parseCard);
 
-    let bestResult = { rate: 0, niuValue: 0, type: "No Niu", flipped: false };
+    let bestResult = { rate: 0, niuValue: 0, type: "Mei You Dian", flipped: false };
     
     const jokerTypes = [
         {v:1, r:'A'}, {v:2, r:'2'}, {v:3, r:'3'}, {v:4, r:'4'}, {v:5, r:'5'},
@@ -326,7 +326,7 @@ function evaluateFiveCards(cards) {
     const straightResult = checkStraight(cards);
     if (straightResult) return straightResult;
 
-    let bestSplit = { type: "No Niu", rate: 0, niuValue: 0 };
+    let bestSplit = { type: "Mei You Dian", rate: 0, niuValue: 0 };
 
     for (let i = 0; i < 3; i++) {
         for (let j = i + 1; j < 4; j++) {
@@ -363,7 +363,7 @@ function evaluateFiveCards(cards) {
                         currentSplit = { type: "Baobao", rate: 3, niuValue: niuValue };
                     } 
                     else if (niuValue === 0) {
-                        currentSplit = { type: "Full Hand (Niu Niu)", rate: 2, niuValue: 10 };
+                        currentSplit = { type: "Man Dian", rate: 2, niuValue: 10 };
                     } 
                     else {
                         // The requested 'Dian' logic integration
@@ -415,3 +415,4 @@ window.onload = startCamera;
 </body>
 
 </html>
+
