@@ -242,7 +242,6 @@ function displayResults(cards) {
         resultText.innerHTML = `
             <div style="font-size: 18px;">Type: <b>${result.type}</b></div>
             <div class="rate-text">Rate: ${result.rate}x</div>
-            ${result.flipped ? `<div style="font-size:12px; margin-top:5px; color:#10b981;">(Used 3/6 Flip Rule for best score)</div>` : ''}
         `;
     } else {
         resultText.innerHTML = "No cards detected. Try spreading them out.";
@@ -414,4 +413,5 @@ window.onload = startCamera;
 </script>
 
 </body>
+
 </html>
